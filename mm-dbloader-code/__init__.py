@@ -39,7 +39,7 @@ def importCSV_blob(importCSV):
     return newDict
 
 def logger(pr_id, msg):
-    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str(datetime.now()+ timedelta(hours=1).strftime("%Y.%m.%d %H:%M:%S"))}
+    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))}
     return rtn
 
 
@@ -192,10 +192,10 @@ def filmLoaderCalc(w,limit,filmCountList):
 
     filmCountBiasedListLimit=list(dict())
     for film in filmCountBiasedList:
-        if film["year"]!=datetime.date.today().year:
+        if film["year"]!=datetime.now().year:
             filmCountBiasedLimit=round(film["filmCountBiased"] * (limit/sumBiasedValue))
         else:
-            filmCountBiasedLimit=limit/12/4*datetime.date.today().isocalendar().week 
+            filmCountBiasedLimit=limit/12/4*datetime.now().isocalendar().week 
         filmCountBiasedListLimit.append({"year": film["year"], "filmCount": film["filmCount"], "filmCountBiased": film["filmCountBiased"], "filmCountBiasedLimit": filmCountBiasedLimit})
 
 
@@ -355,7 +355,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 else:
                     log.append(logger(process["Process ID"], "Empty keywords error"))
 
-            process["Last Run"]=str(datetime.now()+ timedelta(hours=1).strftime("%Y.%m.%d %H:%M:%S"))
+            process["Last Run"]=str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))
             if err_flg=="N":process["Status"]="D"
             else: process["Status"]="E"
 
@@ -367,7 +367,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     DB_Loader_lists()
 
     log.append(logger("-", "End of calculation"))
-    exportCSV_blob('logs/log_'+str(datetime.now()+ timedelta(hours=1).strftime("%Y%m%d_%H%M%S")),log)
+    exportCSV_blob('logs/log_'+str((datetime.now())+ timedelta(hours=1).strftime("%Y%m%d_%H%M%S")),log)
         
 
 
