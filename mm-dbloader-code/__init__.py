@@ -5,7 +5,7 @@ import time
 import requests
 import csv
 import datetime
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import azure.functions as func
 from azure.storage.blob import BlobServiceClient  
@@ -39,7 +39,7 @@ def importCSV_blob(importCSV):
     return newDict
 
 def logger(pr_id, msg):
-    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str(datetime.now().strftime("%Y.%m.%d %H:%M:%S"))}
+    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str(datetime.now()+ timedelta(hours=1).strftime("%Y.%m.%d %H:%M:%S"))}
     return rtn
 
 
@@ -308,7 +308,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             w=float(0 if process["Biased List W"]=="" else process["Biased List W"].replace(",", "."))
 
             log.append(logger(process["Process ID"], "Params: FilmLimit: "+str(filmLimit)+" YearFrom: "+str(yearFrom)+" YearTo: "+str(yearTo)+" Country: "+str(country)+" Title_lang: "+str(title_lang)+""))
-
             
             if runWithImportedBiasedList==1:
                 log.append(logger(process["Process ID"], "import "+importBiasedListFile))
@@ -356,7 +355,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 else:
                     log.append(logger(process["Process ID"], "Empty keywords error"))
 
-            process["Last Run"]=str(datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
+            process["Last Run"]=str(datetime.now()+ timedelta(hours=1).strftime("%Y.%m.%d %H:%M:%S"))
             if err_flg=="N":process["Status"]="D"
             else: process["Status"]="E"
 
@@ -368,7 +367,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     DB_Loader_lists()
 
     log.append(logger("-", "End of calculation"))
-    exportCSV_blob('logs/log_'+str(datetime.now().strftime("%Y%m%d_%H%M%S")),log)
+    exportCSV_blob('logs/log_'+str(datetime.now()+ timedelta(hours=1).strftime("%Y%m%d_%H%M%S")),log)
         
 
 
