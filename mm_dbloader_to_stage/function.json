@@ -1,0 +1,20 @@
+{
+  "scriptFile": "__init__.py",
+  "bindings": [
+    {
+      "name": "myblob",
+      "type": "blobTrigger",
+      "direction": "in",
+      "path": "mmdbloader/load_to_DB/load_filmlist_delta_to_db.csv",
+      "connection": "AzureWebJobsStorage"
+    },
+
+    {
+      "name": "sqlstage",
+      "type": "sql",
+      "direction": "out",
+      "commandText": "stage.moviedata",
+      "connectionStringSetting": "SQLCONN"
+    }
+  ]
+}
