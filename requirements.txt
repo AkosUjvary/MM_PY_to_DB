@@ -3,5 +3,6 @@
 # Manually managing azure-functions-worker may cause unexpected issues
 
 #azure-functions==1.11.0
-azure-functions==1.11.3b1
+#azure-functions==1.11.3b1
+azure-functions==1.13.2
 azure-storage-blob
