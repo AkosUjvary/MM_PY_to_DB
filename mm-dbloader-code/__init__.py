@@ -38,6 +38,14 @@ def importCSV_blob(importCSV):
         headerCnt=headerCnt+1
     return newDict
 
+def existsCSV_blob(existCSV):
+    container_client = blob_service.get_container_client(container= container_name) 
+    folder='/'.join(existCSV.split('/')[:-1])    
+    fileList=list(str(x.name).split(folder+'/')[1] for x in container_client.list_blobs() if folder+'/' in str(x.name))
+    file=existCSV.split('/')[-1]+".csv"
+    rtnExists=file in fileList
+    return rtnExists
+
 def logger(pr_id, msg):
     rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))}
     return rtn
@@ -287,7 +295,7 @@ container_name="mmdbloader"
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
-    isAdhocRun = 1 if req.params.get('adhoc')=='1' else 0
+    isAdhocRun = 1 if req.params.get('adhoc')=='1' else 1
     log=list(dict())
     new_processes=list(dict())
     processes=importCSV_blob('MMP_processes')
@@ -327,13 +335,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             if runLoadingFilms==1:
                 log.append(logger(process["Process ID"], "Start of getFeatureFilm_Title_ID_ByYear"))
 
-                if process["Status"]!="P":                    
-                    movieList_IMDBID_Title=list(dict())
+                movieList_IMDBID_Title=list(dict())
+                if process["Status"]!="P":                       
                     for countFilmYear in biasedCountByYear:
                         if yearFrom<=int(countFilmYear["year"]) and int(countFilmYear["year"])<=yearTo:
                             movieList_IMDBID_Title.extend(getFeatureFilm_Title_ID_ByYear(countFilmYear["year"],country, title_lang, int(countFilmYear["filmCountBiasedLimit"]), sort_type))
-                    exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]+'',movieList_IMDBID_Title)    
-                else:
+                    exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]+'',movieList_IMDBID_Title)                        
+                
+                if process["Status"]=="P" and existsCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]):
                     movieList_IMDBID_Title=importCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"])
 
                 log.append(logger(process["Process ID"], "Start of getFeatureFilm_keywords_origTitle_ById"))                
@@ -343,21 +352,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     newID= process["Process ID"][0:-1]+str((int(process["Process ID"][-1::])+1)) 
                     exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+newID+'',movieList_IMDBID_Title_over)
                     movieList_IMDBID_Title=movieList_IMDBID_Title[0:filmLimit]
-          
-                rtn_movieList_KW=getFeatureFilm_keywords_origTitle_ById(movieList_IMDBID_Title)
-                movieList_KW=rtn_movieList_KW["rtn"]
-                err_flg="Y" if (country!="global" and rtn_movieList_KW["err_count"]>5) or (country=="global" and rtn_movieList_KW["err_count"]>2) else "N"
+              
+                if len(movieList_IMDBID_Title)>0:
+                    rtn_movieList_KW=getFeatureFilm_keywords_origTitle_ById(movieList_IMDBID_Title)
+                    movieList_KW=rtn_movieList_KW["rtn"]
+                    err_flg="Y" if (country!="global" and rtn_movieList_KW["err_count"]>5) or (country=="global" and rtn_movieList_KW["err_count"]>2) else "N"
 
-                if err_flg!="Y":
-                    log.append(logger(process["Process ID"], "Start of filmlist_omdb"))
-                    filmlist_omdb = omdb(movieList_KW)
-                    exportCSV_blob('output/filmlist_omdb/filmlist_omdb_'+process["Process ID"]+'_'+str(yearFrom)+'_'+str(yearTo)+'_'+country,filmlist_omdb)
+                    if err_flg!="Y":
+                        log.append(logger(process["Process ID"], "Start of filmlist_omdb"))
+                        filmlist_omdb = omdb(movieList_KW)
+                        exportCSV_blob('output/filmlist_omdb/filmlist_omdb_'+process["Process ID"]+'_'+str(yearFrom)+'_'+str(yearTo)+'_'+country,filmlist_omdb)
+                    else:
+                        log.append(logger(process["Process ID"], "Empty keywords error"))
                 else:
-                    log.append(logger(process["Process ID"], "Empty keywords error"))
+                    log.append(logger(process["Process ID"], "No films being processed.")) 
 
             process["Last Run"]=str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))
-            if err_flg=="N":process["Status"]="D"
-            else: process["Status"]="E"
+            if err_flg=="Y":process["Status"]="E"
+            else: process["Status"] = "D" if process["Status"] != "P" else process["Status"]
+                
 
         new_processes.append(process)
                 
@@ -367,7 +380,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     DB_Loader_lists()
 
     log.append(logger("-", "End of calculation"))
-    exportCSV_blob('logs/log_'+str((datetime.now())+ timedelta(hours=1).strftime("%Y%m%d_%H%M%S")),log)
+    exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=1)).strftime("%Y%m%d_%H%M%S")),log)
         
 
 
