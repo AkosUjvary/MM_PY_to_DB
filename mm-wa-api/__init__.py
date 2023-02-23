@@ -90,6 +90,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return_json=importCSV_blob("load_to_DB/stage_mapping")
         return func.HttpResponse(return_json, status_code=200)
 
+    elif fnc=="lsched":        
+        return_json=importCSV_blob("load_to_DB/scheduler")
+        return func.HttpResponse(return_json, status_code=200)
+
     elif fnc=="lcorrections":   
         return_json = importCSV_blob("load_to_DB/load_filmlist_to_db_corr") if len(findBlobs("load_to_DB/load_filmlist_to_db_corr"))>0 else json.dumps(list(dict()))              
         return func.HttpResponse(return_json, status_code=200)  
@@ -106,6 +110,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         new_map=json.loads(req_json)
         exportCSV_blob("load_to_DB/stage_mapping",new_map, "N", "")
         return func.HttpResponse("stage_mapping.csv saved.", status_code=200) 
+
+    elif fnc=="ssched":    
+        req_json=req.get_json() 
+        new_scheduler=json.loads(req_json)
+        exportCSV_blob("load_to_DB/scheduler",new_scheduler, "N", "")
+        return func.HttpResponse("scheduler.csv saved.", status_code=200) 
+
 
     elif fnc=="saddedcorrs":    
         req_json=req.get_json() 
