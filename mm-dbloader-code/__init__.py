@@ -295,14 +295,24 @@ container_name="mmdbloader"
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
-    isAdhocRun = 1 if req.params.get('adhoc')=='1' else 1
+    isAdhocRun = 1 if req.params.get('adhoc')=='1' else 0
     log=list(dict())
     new_processes=list(dict())
     processes=importCSV_blob('MMP_processes')
     err_flg="N"
 
+    processesToRun=list()
+    if (isAdhocRun==0):
+        allScheduledProcesses=importCSV_blob("load_to_DB/scheduler")
+        processesToRun=[x["Process ID"] for x in allScheduledProcesses 
+            if                
+                     datetime.strptime(x["Schedule"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=1)).time()
+                and (datetime.now()+ timedelta(hours=1)).time()<=(datetime.strptime(x["Schedule"], "%H:%M")+ timedelta(minutes=5)).time()
+            ]
+
+
     for process in processes:
-        if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (isAdhocRun==0 and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='D') and err_flg=="N"):        
+        if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (process["Process ID"] in processesToRun and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='D') and err_flg=="N"):        
             yearFrom=int(process["Year From"])
             yearTo=int(process["Year To"])
             country="global" if process["Country"]=="" else process["Country"]
