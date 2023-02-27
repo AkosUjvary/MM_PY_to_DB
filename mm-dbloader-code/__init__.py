@@ -312,7 +312,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 
     for process in processes:
-        if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (process["Process ID"] in processesToRun and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='D') and err_flg=="N"):        
+        if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (process["Process ID"] in processesToRun and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='P' or process["Status"]=='D') and err_flg=="N"):        
             yearFrom=int(process["Year From"])
             yearTo=int(process["Year To"])
             country="global" if process["Country"]=="" else process["Country"]
