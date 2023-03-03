@@ -303,95 +303,97 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     processesToRun=list()
     if (isAdhocRun==0):
-        allScheduledProcesses=importCSV_blob("load_to_DB/scheduler")
+        dayMap={"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
+        allScheduledProcesses=importCSV_blob("load_to_DB/scheduler")        
         processesToRun=[x["Process ID"] for x in allScheduledProcesses 
             if                
-                     datetime.strptime(x["Schedule"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=1)).time()
-                and (datetime.now()+ timedelta(hours=1)).time()<=(datetime.strptime(x["Schedule"], "%H:%M")+ timedelta(minutes=5)).time()
+                     datetime.strptime(x["Time"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=1)).time()
+                and (datetime.now()+ timedelta(hours=1)).time()<=(datetime.strptime(x["Time"], "%H:%M")+ timedelta(minutes=5)).time()
+                and (datetime.now()+ timedelta(hours=1)).weekday()==dayMap[x["Day"]]
             ]
 
+    if (isAdhocRun==1 or (isAdhocRun==0 and len(processesToRun)!=0)):
+        for process in processes:
+            if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (process["Process ID"] in processesToRun and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='P' or process["Status"]=='D') and err_flg=="N"):        
+                yearFrom=int(process["Year From"])
+                yearTo=int(process["Year To"])
+                country="global" if process["Country"]=="" else process["Country"]
+                title_lang=process["Title Language"]
+                filmLimit=int(0 if process["Film limit"]=='' else process["Film limit"])  
+                runBiasedList=1 if process["Run Biased List"].lower()=='y' else 0
+                runLoadingFilms=1 if process["Run Film List"].lower()=='y' else 0
+                runWithImportedBiasedList=1 if process["Run with Imported Biased List"].lower()=='y' else 0
+                sort_type="num_votes" if process["Biased List Sorting"]=="" else process["Biased List Sorting"]
+                importBiasedListFile=process["Imported Biased List File"]
+                w=float(0 if process["Biased List W"]=="" else process["Biased List W"].replace(",", "."))
 
-    for process in processes:
-        if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (process["Process ID"] in processesToRun and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='P' or process["Status"]=='D') and err_flg=="N"):        
-            yearFrom=int(process["Year From"])
-            yearTo=int(process["Year To"])
-            country="global" if process["Country"]=="" else process["Country"]
-            title_lang=process["Title Language"]
-            filmLimit=int(0 if process["Film limit"]=='' else process["Film limit"])  
-            runBiasedList=1 if process["Run Biased List"].lower()=='y' else 0
-            runLoadingFilms=1 if process["Run Film List"].lower()=='y' else 0
-            runWithImportedBiasedList=1 if process["Run with Imported Biased List"].lower()=='y' else 0
-            sort_type="num_votes" if process["Biased List Sorting"]=="" else process["Biased List Sorting"]
-            importBiasedListFile=process["Imported Biased List File"]
-            w=float(0 if process["Biased List W"]=="" else process["Biased List W"].replace(",", "."))
-
-            log.append(logger(process["Process ID"], "Params: FilmLimit: "+str(filmLimit)+" YearFrom: "+str(yearFrom)+" YearTo: "+str(yearTo)+" Country: "+str(country)+" Title_lang: "+str(title_lang)+""))
-            
-            if runWithImportedBiasedList==1:
-                log.append(logger(process["Process ID"], "import "+importBiasedListFile))
-                biasedCountByYear=importCSV_blob(process["Imported Biased List File"])
-
-            if runBiasedList==1:
-                log.append(logger(process["Process ID"], "Start of biasedCountByYear"))
-                countFilmsList=list(dict())
-                currYear=yearFrom
-                while currYear<=yearTo:
-                    countFilmsList.append({"year":currYear, "filmCount": getFeatureFilmCountByYear(currYear, country)})
-                    currYear=currYear+1
-
-                biasedCountByYear=filmLoaderCalc(w,filmLimit,countFilmsList)
-                exportCSV_blob(process["Exported Biased List File"],biasedCountByYear)
-
-            if runLoadingFilms==1:
-                log.append(logger(process["Process ID"], "Start of getFeatureFilm_Title_ID_ByYear"))
-
-                movieList_IMDBID_Title=list(dict())
-                if process["Status"]!="P":                       
-                    for countFilmYear in biasedCountByYear:
-                        if yearFrom<=int(countFilmYear["year"]) and int(countFilmYear["year"])<=yearTo:
-                            movieList_IMDBID_Title.extend(getFeatureFilm_Title_ID_ByYear(countFilmYear["year"],country, title_lang, int(countFilmYear["filmCountBiasedLimit"]), sort_type))
-                    exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]+'',movieList_IMDBID_Title)                        
+                log.append(logger(process["Process ID"], "Params: FilmLimit: "+str(filmLimit)+" YearFrom: "+str(yearFrom)+" YearTo: "+str(yearTo)+" Country: "+str(country)+" Title_lang: "+str(title_lang)+""))
                 
-                if process["Status"]=="P" and existsCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]):
-                    movieList_IMDBID_Title=importCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"])
+                if runWithImportedBiasedList==1:
+                    log.append(logger(process["Process ID"], "import "+importBiasedListFile))
+                    biasedCountByYear=importCSV_blob(process["Imported Biased List File"])
 
-                log.append(logger(process["Process ID"], "Start of getFeatureFilm_keywords_origTitle_ById"))                
+                if runBiasedList==1:
+                    log.append(logger(process["Process ID"], "Start of biasedCountByYear"))
+                    countFilmsList=list(dict())
+                    currYear=yearFrom
+                    while currYear<=yearTo:
+                        countFilmsList.append({"year":currYear, "filmCount": getFeatureFilmCountByYear(currYear, country)})
+                        currYear=currYear+1
 
-                if filmLimit>0 and len(movieList_IMDBID_Title)>filmLimit:                    
-                    movieList_IMDBID_Title_over=movieList_IMDBID_Title[filmLimit::]
-                    newID= process["Process ID"][0:-1]+str((int(process["Process ID"][-1::])+1)) 
-                    exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+newID+'',movieList_IMDBID_Title_over)
-                    movieList_IMDBID_Title=movieList_IMDBID_Title[0:filmLimit]
-              
-                if len(movieList_IMDBID_Title)>0:
-                    rtn_movieList_KW=getFeatureFilm_keywords_origTitle_ById(movieList_IMDBID_Title)
-                    movieList_KW=rtn_movieList_KW["rtn"]
-                    err_flg="Y" if (country!="global" and rtn_movieList_KW["err_count"]>5) or (country=="global" and rtn_movieList_KW["err_count"]>2) else "N"
+                    biasedCountByYear=filmLoaderCalc(w,filmLimit,countFilmsList)
+                    exportCSV_blob(process["Exported Biased List File"],biasedCountByYear)
 
-                    if err_flg!="Y":
-                        log.append(logger(process["Process ID"], "Start of filmlist_omdb"))
-                        filmlist_omdb = omdb(movieList_KW)
-                        exportCSV_blob('output/filmlist_omdb/filmlist_omdb_'+process["Process ID"]+'_'+str(yearFrom)+'_'+str(yearTo)+'_'+country,filmlist_omdb)
+                if runLoadingFilms==1:
+                    log.append(logger(process["Process ID"], "Start of getFeatureFilm_Title_ID_ByYear"))
+
+                    movieList_IMDBID_Title=list(dict())
+                    if process["Status"]!="P":                       
+                        for countFilmYear in biasedCountByYear:
+                            if yearFrom<=int(countFilmYear["year"]) and int(countFilmYear["year"])<=yearTo:
+                                movieList_IMDBID_Title.extend(getFeatureFilm_Title_ID_ByYear(countFilmYear["year"],country, title_lang, int(countFilmYear["filmCountBiasedLimit"]), sort_type))
+                        exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]+'',movieList_IMDBID_Title)                        
+                    
+                    if process["Status"]=="P" and existsCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]):
+                        movieList_IMDBID_Title=importCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"])
+
+                    log.append(logger(process["Process ID"], "Start of getFeatureFilm_keywords_origTitle_ById"))                
+
+                    if filmLimit>0 and len(movieList_IMDBID_Title)>filmLimit:                    
+                        movieList_IMDBID_Title_over=movieList_IMDBID_Title[filmLimit::]
+                        newID= process["Process ID"][0:-1]+str((int(process["Process ID"][-1::])+1)) 
+                        exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+newID+'',movieList_IMDBID_Title_over)
+                        movieList_IMDBID_Title=movieList_IMDBID_Title[0:filmLimit]
+                
+                    if len(movieList_IMDBID_Title)>0:
+                        rtn_movieList_KW=getFeatureFilm_keywords_origTitle_ById(movieList_IMDBID_Title)
+                        movieList_KW=rtn_movieList_KW["rtn"]
+                        err_flg="Y" if (country!="global" and rtn_movieList_KW["err_count"]>5) or (country=="global" and rtn_movieList_KW["err_count"]>2) else "N"
+
+                        if err_flg!="Y":
+                            log.append(logger(process["Process ID"], "Start of filmlist_omdb"))
+                            filmlist_omdb = omdb(movieList_KW)
+                            exportCSV_blob('output/filmlist_omdb/filmlist_omdb_'+process["Process ID"]+'_'+str(yearFrom)+'_'+str(yearTo)+'_'+country,filmlist_omdb)
+                        else:
+                            log.append(logger(process["Process ID"], "Empty keywords error"))
                     else:
-                        log.append(logger(process["Process ID"], "Empty keywords error"))
-                else:
-                    log.append(logger(process["Process ID"], "No films being processed.")) 
+                        log.append(logger(process["Process ID"], "No films being processed.")) 
 
-            process["Last Run"]=str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))
-            if err_flg=="Y":process["Status"]="E"
-            else: process["Status"] = "D" if process["Status"] != "P" else process["Status"]
-                
+                process["Last Run"]=str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))
+                if err_flg=="Y":process["Status"]="E"
+                else: process["Status"] = "D" if process["Status"] != "P" else process["Status"]
+                    
 
-        new_processes.append(process)
-                
-    exportCSV_blob('MMP_processes',new_processes)
+            new_processes.append(process)
+                    
+        exportCSV_blob('MMP_processes',new_processes)
 
-    log.append(logger("-", "Start of Loader refresh"))
-    DB_Loader_lists()
+        log.append(logger("-", "Start of Loader refresh"))
+        DB_Loader_lists()
 
-    log.append(logger("-", "End of calculation"))
-    exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=1)).strftime("%Y%m%d_%H%M%S")),log)
-        
+        log.append(logger("-", "End of calculation"))
+        exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=1)).strftime("%Y%m%d_%H%M%S")),log)
+            
 
 
     if isAdhocRun==1:
