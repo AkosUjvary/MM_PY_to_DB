@@ -254,11 +254,11 @@ def DB_Loader_lists():
     filmListCorr = importCSV_blob("load_to_DB/load_filmlist_to_db_corr") if len(findFilmLists("load_to_DB/load_filmlist_to_db_corr.csv"))>0 else list(dict()) 
     
 
-    filmListsCSV_cleaned=list(dict())
+    filmListsCSV_cleaned=list(dict()) 
 
     for filmListCSV in filmListsCSV:
-        filmList=importCSV_blob(filmListCSV)
-
+        print(filmListCSV)
+        filmList=importCSV_blob(filmListCSV)     
         filmList_CLND_IMDBIDs=[x['imdbId'] for x in filmListsCSV_cleaned]
 
         for film in filmList:
