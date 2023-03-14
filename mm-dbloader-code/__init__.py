@@ -351,7 +351,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     if process["Status"]!="P":                       
                         for countFilmYear in biasedCountByYear:
                             if yearFrom<=int(countFilmYear["year"]) and int(countFilmYear["year"])<=yearTo:
-                                movieList_IMDBID_Title.extend(getFeatureFilm_Title_ID_ByYear(countFilmYear["year"],country, title_lang, int(countFilmYear["filmCountBiasedLimit"]), sort_type))
+                                movieList_IMDBID_Title.extend(getFeatureFilm_Title_ID_ByYear(countFilmYear["year"],country, title_lang, int(float(countFilmYear["filmCountBiasedLimit"])), sort_type))
                         exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]+'',movieList_IMDBID_Title)                        
                     
                     if process["Status"]=="P" and existsCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]):
