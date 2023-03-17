@@ -90,7 +90,7 @@ def getFeatureFilm_Title_ID_ByYear(year, country, title_lang, filmLimit, sort_ty
     film_counter=1
     while film_counter<=filmLimit:
         time.sleep(0.05)
-        url="http://www.imdb.com/search/title/?title_type=feature&release_date="+str(year)+"-01-01,"+str(year)+"-12-31&count=250&sort="+sort_type+",desc&view=simple"+countryInURL+"&start="+str(pageStart_counter)+"&ref_=adv_nxt"
+        url="http://www.imdb.com/search/title/?title_type=feature&release_date="+str(year)+"-01-01,"+str(year)+"-12-31&count=250&sort="+sort_type+"&view=simple"+countryInURL+"&start="+str(pageStart_counter)+"&ref_=adv_nxt"
         req = requests.get(url,
                         headers={'Accept-Language': ''+title_lang+''})
         html_bytes=req.content
@@ -323,7 +323,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 runBiasedList=1 if process["Run Biased List"].lower()=='y' else 0
                 runLoadingFilms=1 if process["Run Film List"].lower()=='y' else 0
                 runWithImportedBiasedList=1 if process["Run with Imported Biased List"].lower()=='y' else 0
-                sort_type="num_votes" if process["Biased List Sorting"]=="" else process["Biased List Sorting"]
+                sort_type="num_votes,desc" if process["Biased List Sorting"]=="" else process["Biased List Sorting"]
                 importBiasedListFile=process["Imported Biased List File"]
                 w=float(0 if process["Biased List W"]=="" else process["Biased List W"].replace(",", "."))
 
