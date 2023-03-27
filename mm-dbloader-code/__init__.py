@@ -47,7 +47,7 @@ def existsCSV_blob(existCSV):
     return rtnExists
 
 def logger(pr_id, msg):
-    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))}
+    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str((datetime.now()+ timedelta(hours=delayHRS)).strftime("%Y.%m.%d %H:%M:%S"))}
     return rtn
 
 
@@ -246,15 +246,17 @@ def findFilmLists(starts_with):
     filmlists=list(x.name.replace(".csv", "") for x in container_client.list_blobs(name_starts_with=starts_with))    
     return filmlists
 
-def DB_Loader_lists():
+def DB_Loader_lists(processesToRun):
     filmListsCSV=findFilmLists("output/filmlist_omdb/filmlist_omdb_")
     finalFilmList = importCSV_blob("load_to_DB/load_filmlist_to_db") if len(findFilmLists("load_to_DB/load_filmlist_to_db.csv"))>0 else list(dict()) 
+    finalFilmList_ong_corr=list(dict())
     finalFilmListDelta=list(dict())
 
     filmListCorr = importCSV_blob("load_to_DB/load_filmlist_to_db_corr") if len(findFilmLists("load_to_DB/load_filmlist_to_db_corr.csv"))>0 else list(dict()) 
     
 
     filmListsCSV_cleaned=list(dict()) 
+    ong_imdb_list=list()
 
     for filmListCSV in filmListsCSV:
         print(filmListCSV)
@@ -267,14 +269,26 @@ def DB_Loader_lists():
                 filmListsCSV_cleaned.append(film)
 
     if not finalFilmList:
-        finalFilmList=filmListsCSV_cleaned
+        finalFilmList_ong_corr=filmListsCSV_cleaned
         finalFilmListDelta=filmListsCSV_cleaned
-    else:
-        filmList_FINAL_IMDBIDs=[x['imdbId'] for x in finalFilmList]
+    else: 
+        for process in processesToRun:
+            if existsCSV_blob("output/filmlist_imdbid/filmlist_imdbid_"+process):
+                tmp_list=importCSV_blob("output/filmlist_imdbid/filmlist_imdbid_"+process)
+                if tmp_list:
+                    for item in tmp_list:
+                        ong_imdb_list.append(item['imdbId'])
+
+        for film in finalFilmList:
+            if film["imdbId"] not in ong_imdb_list:
+                finalFilmList_ong_corr.append(film)
+
+
+        filmList_FINAL_IMDBIDs=[x['imdbId'] for x in finalFilmList_ong_corr]
 
         for film in filmListsCSV_cleaned:
             if film["imdbId"] not in filmList_FINAL_IMDBIDs:
-                finalFilmList.append(film)
+                finalFilmList_ong_corr.append(film)
                 finalFilmListDelta.append(film)
 
     if filmListCorr:
@@ -284,7 +298,7 @@ def DB_Loader_lists():
             finalFilmListDelta.append(filmCorr)
 
 
-    if finalFilmList: exportCSV_blob('load_to_DB/load_filmlist_to_db', finalFilmList)
+    if finalFilmList_ong_corr: exportCSV_blob('load_to_DB/load_filmlist_to_db', finalFilmList_ong_corr)
     if finalFilmListDelta: exportCSV_blob('load_to_DB/load_filmlist_delta_to_db', finalFilmListDelta)
 
 
@@ -292,8 +306,10 @@ def DB_Loader_lists():
 blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="?sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2023-10-14T16:40:16Z&st=2022-10-14T08:40:16Z&spr=https&sig=RZbu%2BSWbiXkEFm%2FoMShfcyRetD%2BemNeGTIdt1%2BpD5nA%3D")
 container_name="mmdbloader"
 
+delayHRS=0
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Python HTTP trigger function processed a request.')
+    logging.info('Python HTTP trigger function processed a request.')    
 
     isAdhocRun = 1 if req.params.get('adhoc')=='1' else 0
     log=list(dict())
@@ -307,10 +323,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         allScheduledProcesses=importCSV_blob("load_to_DB/scheduler")        
         processesToRun=[x["Process ID"] for x in allScheduledProcesses 
             if                
-                     datetime.strptime(x["Time"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=1)).time()
-                and (datetime.now()+ timedelta(hours=1)).time()<=(datetime.strptime(x["Time"], "%H:%M")+ timedelta(minutes=5)).time()
-                and (datetime.now()+ timedelta(hours=1)).weekday()==dayMap[x["Day"]]
+                     datetime.strptime(x["Time"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=delayHRS)).time()
+                and (datetime.now()+ timedelta(hours=delayHRS)).time()<=(datetime.strptime(x["Time"], "%H:%M")+ timedelta(minutes=5)).time()
+                and (datetime.now()+ timedelta(hours=delayHRS)).weekday()==dayMap[x["Day"]]
             ]
+    
+    processesToRunDict=list(dict())
+
+    if processesToRun: 
+        for processToRun in processesToRun:
+            processesToRunDict.append({"process":processToRun})
+    else:
+        processesToRunDict.append({"process":"none"})
+    exportCSV_blob('load_to_DB/processes_curr_ong',processesToRunDict)        
 
     if (isAdhocRun==1 or (isAdhocRun==0 and len(processesToRun)!=0)):
         for process in processes:
@@ -379,7 +404,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     else:
                         log.append(logger(process["Process ID"], "No films being processed.")) 
 
-                process["Last Run"]=str((datetime.now()+ timedelta(hours=1)).strftime("%Y.%m.%d %H:%M:%S"))
+                process["Last Run"]=str((datetime.now()+ timedelta(hours=delayHRS)).strftime("%Y.%m.%d %H:%M:%S"))
                 if err_flg=="Y":process["Status"]="E"
                 else: process["Status"] = "D" if process["Status"] != "P" else process["Status"]
                     
@@ -389,10 +414,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         exportCSV_blob('MMP_processes',new_processes)
 
         log.append(logger("-", "Start of Loader refresh"))
-        DB_Loader_lists()
+        DB_Loader_lists(processesToRun)
 
         log.append(logger("-", "End of calculation"))
-        exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=1)).strftime("%Y%m%d_%H%M%S")),log)
+        exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=delayHRS)).strftime("%Y%m%d_%H%M%S")),log)
             
 
 
