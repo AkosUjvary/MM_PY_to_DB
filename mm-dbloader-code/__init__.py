@@ -151,6 +151,7 @@ def getFeatureFilm_keywords_origTitle_ById(movieListArr):
 
     for movie in movieListArr:
         url="https://www.imdb.com/title/"+movie["imdbId"]+"/?ref_=fn_al_tt_0"
+        print("KW: "+url)
         req = requests.get(url, headers={
             'Accept-Language': 'HU-hu',
             'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36'
