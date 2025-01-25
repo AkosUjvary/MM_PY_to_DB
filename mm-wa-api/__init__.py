@@ -141,4 +141,4 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(file_name+" is deleted.", status_code=200) 
 
     else:
-        return func.HttpResponse("No function found.",status_code=500)
+        return func.HttpResponse("NNo function found.",status_code=500)
