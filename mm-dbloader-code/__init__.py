@@ -12,7 +12,7 @@ import azure.functions as func
 from azure.storage.blob import BlobServiceClient  
 
 # --- CONFIG ---------------------------------------------------
-blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="?sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2023-10-14T16:40:16Z&st=2022-10-14T08:40:16Z&spr=https&sig=RZbu%2BSWbiXkEFm%2FoMShfcyRetD%2BemNeGTIdt1%2BpD5nA%3D")
+blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2027-01-04T00:05:31Z&st=2026-01-03T15:50:31Z&spr=https&sig=VZwfSg9vLomc%2BszCzCt3yHmNZv1PlyHvDFb3mwzhXHw%3D")
 container_name = "mmdbloader"
 delayHRS = 2
 SLICE_SIZE = 250
