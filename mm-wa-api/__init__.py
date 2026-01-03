@@ -70,7 +70,7 @@ def cleanQuot(str):
 
 # config:
 
-conn_str = os.environ["BLOB_CONNECTION_STRING"]
+conn_str = os.environ["MM_STORAGE_CONNECTION_STRING"]
 blob_service = BlobServiceClient.from_connection_string(conn_str)
 container_name="mmdbloader"
 
