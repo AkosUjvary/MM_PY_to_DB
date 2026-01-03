@@ -4,7 +4,7 @@ import json
 import logging
 import azure.functions as func
 from azure.storage.blob import BlobServiceClient  
-
+import os
 
 def exportCSV_blob(filename, listDict, id_flg, id_nm):  
     delimiter=";"          
@@ -69,7 +69,9 @@ def cleanQuot(str):
     return cleaned_str
 
 # config:
-blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2027-01-04T00:05:31Z&st=2026-01-03T15:50:31Z&spr=https&sig=VZwfSg9vLomc%2BszCzCt3yHmNZv1PlyHvDFb3mwzhXHw%3D")
+
+conn_str = os.environ["BLOB_CONNECTION_STRING"]
+blob_service = BlobServiceClient.from_connection_string(conn_str)
 container_name="mmdbloader"
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
