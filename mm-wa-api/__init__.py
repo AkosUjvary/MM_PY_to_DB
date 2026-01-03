@@ -69,7 +69,7 @@ def cleanQuot(str):
     return cleaned_str
 
 # config:
-blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="?sv=2022-11-02&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2024-10-09T19:35:56Z&st=2023-10-30T12:35:56Z&spr=https&sig=r3ayM0Hhq6HpCrW8jqNgwZCoPQjN1Ba0jMlrPxbnO98%3D")
+blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2027-01-04T00:05:31Z&st=2026-01-03T15:50:31Z&spr=https&sig=VZwfSg9vLomc%2BszCzCt3yHmNZv1PlyHvDFb3mwzhXHw%3D")
 container_name="mmdbloader"
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
