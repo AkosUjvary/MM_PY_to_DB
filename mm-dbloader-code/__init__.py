@@ -7,425 +7,358 @@ import csv
 import datetime
 from datetime import datetime, timedelta
 import logging
+import hashlib
 import azure.functions as func
 from azure.storage.blob import BlobServiceClient  
- 
 
-def exportCSV_blob(filename, listDict):  
-    delimiter=";"          
+# --- CONFIG ---------------------------------------------------
+blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="?sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2023-10-14T16:40:16Z&st=2022-10-14T08:40:16Z&spr=https&sig=RZbu%2BSWbiXkEFm%2FoMShfcyRetD%2BemNeGTIdt1%2BpD5nA%3D")
+container_name = "mmdbloader"
+delayHRS = 2
+SLICE_SIZE = 250
+
+# --- BLOB HELPERS --------------------------------------------
+def exportCSV_blob(filename, listDict):
+    if not listDict: 
+        return
+    delimiter=";"
     header = delimiter.join(list(listDict[0].keys()))
-    writer=header
-    for dict in listDict:
-        writer=writer+'\n'+delimiter.join(list(str(x) for x in dict.values()))
-
+    writer = header
+    for dict_item in listDict:
+        writer = writer + '\n' + delimiter.join(list(str(x) for x in dict_item.values()))
     blob_client = blob_service.get_blob_client(container=container_name, blob=filename+".csv")
     blob_client.upload_blob(writer, blob_type="BlockBlob", overwrite=True)
- 
+
 def importCSV_blob(importCSV):
     newDict=list(dict())
-
-    container_client = blob_service.get_container_client(container= container_name) 
-    readerOrig=container_client.download_blob(importCSV+".csv").readall().decode("utf-8").splitlines()
-
+    container_client = blob_service.get_container_client(container=container_name)
+    try:
+        readerOrig=container_client.download_blob(importCSV+".csv").readall().decode("utf-8").splitlines()
+    except:
+        return newDict
     reader = csv.reader(readerOrig, delimiter=';')
-    headerCnt=1        
-    for param in reader:   
+    headerCnt=1
+    for param in reader:
         if headerCnt == 1:
-           header=param
-           colCnt=len(param)
-        if headerCnt>1: 
-                newDict.append({header[i]: param[i] for i in range(colCnt)})
-        headerCnt=headerCnt+1
+            header=param
+            colCnt=len(param)
+        else:
+            newDict.append({header[i]: param[i] for i in range(colCnt)})
+        headerCnt += 1
     return newDict
 
 def existsCSV_blob(existCSV):
-    container_client = blob_service.get_container_client(container= container_name) 
-    folder='/'.join(existCSV.split('/')[:-1])    
+    container_client = blob_service.get_container_client(container=container_name)
+    folder='/'.join(existCSV.split('/')[:-1])
     fileList=list(str(x.name).split(folder+'/')[1] for x in container_client.list_blobs() if folder+'/' in str(x.name))
     file=existCSV.split('/')[-1]+".csv"
-    rtnExists=file in fileList
-    return rtnExists
+    return file in fileList
 
 def logger(pr_id, msg):
-    rtn={"process id": pr_id, "step message in detail": msg, "timestamp of the step": str((datetime.now()+ timedelta(hours=delayHRS)).strftime("%Y.%m.%d %H:%M:%S"))}
-    return rtn
+    return {
+        "process id": pr_id,
+        "step message in detail": msg,
+        "timestamp of the step": str((datetime.now()+ timedelta(hours=delayHRS)).strftime("%Y.%m.%d %H:%M:%S"))
+    }
 
+# --- SLICE STATE -------------------------------------------------
+def load_slice_state(process_id):
+    state_path = f'output/processing_state/state_{process_id}'
+    if not existsCSV_blob(state_path):
+        return {
+            "next_index": 0,
+            "slice_size": SLICE_SIZE
+        }
+
+    rows = importCSV_blob(state_path)
+    if not rows:
+        return {
+            "next_index": 0,
+            "slice_size": SLICE_SIZE
+        }
+
+    return {
+        "next_index": int(rows[0].get("next_index", 0)),
+        "slice_size": int(rows[0].get("slice_size", SLICE_SIZE))
+    }
+
+
+def save_slice_state(process_id, state):
+    exportCSV_blob(
+        f'output/processing_state/state_{process_id}',
+        [{
+            "next_index": state["next_index"],
+            "slice_size": state["slice_size"]
+        }]
+    )
+
+def clear_slice_state(process_id):
+    try:
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=f'output/processing_state/state_{process_id}.csv'
+        )
+        blob_client.delete_blob()
+    except:
+        pass
+
+# --- FILM HASH ---------------------------------------------------
+HASH_FIELDS = [
+    "imdbId",
+    "orig_title",
+    "keywordsList",
+    "omdb_ReleaseYear",
+    "omdb_Runtime",
+    "omdb_Genre",
+    "omdb_Director",
+    "omdb_Writer",
+    "omdb_Actors",
+    "omdb_Plot"
+]
+
+def calculate_film_hash(film):
+    base = {k: film.get(k, "") for k in HASH_FIELDS}
+    hash_input = json.dumps(base, sort_keys=True).encode("utf-8")
+    return hashlib.sha1(hash_input).hexdigest()
+
+def load_film_state(imdbId):
+    if existsCSV_blob(f'output/film_state/{imdbId}'):
+        data = importCSV_blob(f'output/film_state/{imdbId}')
+        if data:
+            return data[0].get('hash','')
+    return ''
+
+def save_film_state(imdbId, hash_value):
+    exportCSV_blob(f'output/film_state/{imdbId}', [{"hash": hash_value}])
+
+# --- IMDB / OMDB -------------------------------------------------
+def cleanStr(str_input):
+    return str_input.replace("&apos;", "'").replace("&amp;", "&").replace("\"", r"\"").replace("&quot;", r"\"")
 
 def getFeatureFilmCountByYear(year, country):
     countryInURL="" if country=="global" else "&countries="+country
- 
     time.sleep(0.05)
-   
-    req = requests.get(f"http://www.imdb.com/search/title/?title_type=feature&release_date="+str(year)+"-01-01,"+str(year)+"-12-31&count=50&view=simple&sort=num_votes,desc"+countryInURL)
-
+    req = requests.get(f"http://www.imdb.com/search/title/?title_type=feature&release_date={year}-01-01,{year}-12-31&count=50&view=simple&sort=num_votes,desc{countryInURL}")
     html_bytes=req.content
     html = html_bytes.decode("utf-8")
-
     strToFind_1=r"""<div class="desc">"""
     pos1=html.find(strToFind_1)+len(strToFind_1)
-
     step_1=html[pos1:pos1+100]
     pos2=step_1.find("<span")+len("<span")
     pos3=step_1.find("title")
-
     step_2=step_1[pos2:pos3]
-
     i=-2
     result=""
     while step_2[i].isnumeric() or step_2[i]==",":
         result=concat(result,step_2[i].replace(',', ''))
         i=i-1
+    return int(result[::-1])
 
-    rtn=int(result[::-1])
-    return rtn
- 
-
-def getFeatureFilm_Title_ID_ByYear(year, country, title_lang, filmLimit, sort_type):
+def getFeatureFilm_Title_ID_ByYear(year, country, title_lang, sort_type):
     countryInURL="" if country=="" or country=="global" else "&countries="+country
     title_lang=title_lang+"-"+title_lang
-     
     movieList=list(dict())
-
     pageStart_counter=1
     film_counter=1
-    while film_counter<=filmLimit:
+    while True:
         time.sleep(0.05)
-        url="http://www.imdb.com/search/title/?title_type=feature&release_date="+str(year)+"-01-01,"+str(year)+"-12-31&count=250&sort="+sort_type+"&view=simple"+countryInURL+"&start="+str(pageStart_counter)+"&ref_=adv_nxt"
-        req = requests.get(url,
-                        headers={'Accept-Language': ''+title_lang+''})
+        url=f"http://www.imdb.com/search/title/?title_type=feature&release_date={year}-01-01,{year}-12-31&count=250&sort={sort_type}&view=simple{countryInURL}&start={pageStart_counter}&ref_=adv_nxt"
+        req = requests.get(url, headers={'Accept-Language': title_lang})
         html_bytes=req.content
         html = html_bytes.decode("utf-8")
-
         strToFind_1_1=r"""<span class="lister-item-header">"""
         countFilms=html.count(strToFind_1_1)
-
+        if countFilms == 0:
+            break
         page_film_counter=1
-        while page_film_counter<=countFilms and film_counter<=filmLimit:
+        while page_film_counter<=countFilms:
             find_1_1=html.find(strToFind_1_1)+len(strToFind_1_1)
-
             strToFind_1_2="lister-item-year text-muted unbold"
             find_1_2=html.find(strToFind_1_2)
-
             slice_1=html[find_1_1:find_1_2]
-
             strToFind_2_1=r"""<a href="/"""
             find_2_1=slice_1.find(strToFind_2_1)+len(strToFind_2_1)
-
             strToFind_2_2="</a"
             find_2_2=slice_1.find(strToFind_2_2)
-
             slice_2=slice_1[find_2_1:find_2_2]
-
             strToFind_3_1="title/"
             find_3_1=slice_2.find(strToFind_3_1)+len(strToFind_3_1)
-
             strToFind_3_2="\n"
             find_3_2=slice_2.find(strToFind_3_2)-2
-        
             find_4_1=slice_2.find(strToFind_3_2)+2
-
             imdb_id=slice_2[find_3_1:find_3_2]
-            title=slice_2[find_4_1::]  
-            clnd_title=cleanStr(title) 
-
+            title=slice_2[find_4_1::]
+            clnd_title=cleanStr(title)
             html=html[find_1_2+len(strToFind_1_2)::]
             movieList.append({"imdbId": imdb_id, "title" : clnd_title})
-            film_counter=film_counter+1
-            page_film_counter=page_film_counter+1
-        pageStart_counter=pageStart_counter+250
+            film_counter +=1
+            page_film_counter +=1
+        pageStart_counter += 250
     return movieList
 
-def cleanStr(str):   
-    apos_str= str.replace("&apos;", "'")
-    amp_str=apos_str.replace("&amp;", "&")
-    quot_orig_str=amp_str.replace("\"", r"\"")
-    quot_str=quot_orig_str.replace("&quot;", r"\"")
+def getFeatureFilm_keywords_origTitle_ById(film):
+    url = f"https://www.imdb.com/title/{film['imdbId']}/?ref_=fn_al_tt_0"
+    print("KW:", url)
 
-    clnd_str=quot_str
-    return clnd_str
+    req = requests.get(url, headers={
+        'Accept-Language': 'HU-hu',
+        'user-agent': 'Mozilla/5.0'
+    })
 
-def getFeatureFilm_keywords_origTitle_ById(movieListArr):
-   
-    movie_KW_origTitle_List=list(dict())
-    err_count=0
+    html = req.content.decode("utf-8")
 
-    for movie in movieListArr:
-        url="https://www.imdb.com/title/"+movie["imdbId"]+"/?ref_=fn_al_tt_0"
-        print("KW: "+url)
-        req = requests.get(url, headers={
-            'Accept-Language': 'HU-hu',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36'
-            })
-        html_bytes=req.content
-        html = html_bytes.decode("utf-8")
+    try:
+        strToFind_1 = r"""{"@context":"https://schema.org"""
+        p1 = html.find(strToFind_1) + len(strToFind_1)
+        p2 = p1 + html[p1:].find(r"}</script>")
+        slice_1 = html[p1:p2]
 
-        strToFind_1_1=r"""{"@context":"https://schema.org"""
-        findPos_1_1=html.find(strToFind_1_1)+len(strToFind_1_1)
-        strToFind_1_2=r"}</script>" 
-        findPos_1_2=findPos_1_1+html[findPos_1_1::].find(strToFind_1_2)
-        slice_1=html[findPos_1_1:findPos_1_2]
+        # original title
+        t1 = slice_1.find('name":') + 7
+        t2 = t1 + slice_1[t1:].find('","')
+        orig_title = slice_1[t1:t2]
 
-        strToFind_2_1=r"""name":"""
-        findPos_2_1=slice_1.find(strToFind_2_1)+len(strToFind_2_1)+1
-        strToFind_2_2="""\",\""""
-        findPos_2_2=findPos_2_1+slice_1[findPos_2_1+2::].find(strToFind_2_2)+2
-        orig_title=slice_1[findPos_2_1:findPos_2_2]
+        # keywords
+        kw = ""
+        k1 = slice_1.find('keywords":"')
+        if k1 > -1:
+            k1 += len('keywords":"')
+            k2 = k1 + slice_1[k1:].find('","')
+            kw = slice_1[k1:k2]
 
-        strToFind_3_1="keywords\":\""
-        findPos_3_1=slice_1.find(strToFind_3_1)
-        if findPos_3_1>-1:
-            findPos_3_1=findPos_3_1+len(strToFind_3_1)
-            strToFind_3_2=strToFind_2_2
-            findPos_3_2=findPos_3_1+slice_1[findPos_3_1::].find(strToFind_3_2)
-            keywords=slice_1[findPos_3_1:findPos_3_2]
-            #keywordsList=keywords.split(',')
-            err_count=0;
-        else:
-            #keywordsList=list()
-            keywords=str()
-            err_count=err_count+1
+        return {
+            "imdbId": film["imdbId"],
+            "title": film["title"],
+            "orig_title": cleanStr(orig_title),
+            "keywordsList": cleanStr(kw)
+        }
 
-        movie_KW_origTitle_List.append({"imdbId": movie["imdbId"], "title": movie["title"],  "orig_title" : cleanStr(orig_title), "keywordsList" : cleanStr(keywords)})
- 
-    return {"err_count":err_count, "rtn":movie_KW_origTitle_List}
+    except Exception:
+        return None
 
-def filmLoaderCalc(w,limit,filmCountList):
-    maxValue=max(filmCountList, key=lambda x:x['filmCount'])['filmCount']
-    filmCountBiasedList=list(dict())
-    for film in filmCountList:
-        currCount=film["filmCount"]
-        biasedCount = sqrt(currCount) * ((currCount+(w*(maxValue-currCount)))/(maxValue))
-        filmCountBiasedList.append({"year": film["year"], "filmCount": film["filmCount"], "filmCountBiased": biasedCount})
+def omdb(film):
+    url = f"http://www.omdbapi.com/?i={film['imdbId']}&apikey=63b34753"
+    req = requests.get(url)
+    data = json.loads(req.content.decode("utf-8"))
 
-    sumBiasedValue=sum(film['filmCountBiased'] for film in filmCountBiasedList)
+    if data.get("Response") != "True":
+        return None
 
-    filmCountBiasedListLimit=list(dict())
-    for film in filmCountBiasedList:
-        if film["year"]!=datetime.now().year:
-            filmCountBiasedLimit=round(film["filmCountBiased"] * (limit/sumBiasedValue))
-        else:
-            filmCountBiasedLimit=limit/12/4*datetime.now().isocalendar().week 
-        filmCountBiasedListLimit.append({"year": film["year"], "filmCount": film["filmCount"], "filmCountBiased": film["filmCountBiased"], "filmCountBiasedLimit": filmCountBiasedLimit})
-
-
-    return filmCountBiasedListLimit
-
-def omdb(filmlist):
-   
-    filmlist_omdb = list(dict())
-    for movie in filmlist:
-        url="http://www.omdbapi.com/?i="+movie["imdbId"]+"&apikey=63b34753"
-        req = requests.get(url)
-        html_bytes=req.content
-        html = html_bytes.decode("utf-8")
-        omdbJSON = json.loads(html)    
-        if omdbJSON["Response"]=="True":
-            filmlist_omdb.append({"imdbId": movie["imdbId"], "title": movie["title"],  "orig_title" : movie["orig_title"], "keywordsList" : movie["keywordsList"],
-                                "omdb_ReleaseYear": omdbJSON["Year"],
-                                "omdb_Runtime": omdbJSON["Runtime"],
-                                "omdb_Genre": omdbJSON["Genre"],
-                                "omdb_Director": cleanStr(omdbJSON["Director"]),
-                                "omdb_Writer": cleanStr(omdbJSON["Writer"]),
-                                "omdb_Actors": cleanStr(omdbJSON["Actors"]),
-                                "omdb_Plot": cleanStr(omdbJSON["Plot"]).replace(";", ","),
-                                "omdb_Language": omdbJSON["Language"],
-                                "omdb_Country": omdbJSON["Country"],
-                                "omdb_ReleasedDate": omdbJSON["Released"].replace("N/A", "01 Apr "+str(omdbJSON["Year"])),
-                                "omdb_Awards": omdbJSON["Awards"],
-                                "omdb_Poster": omdbJSON["Poster"],
-                                "omdb_Rating_IMDB": omdbJSON["imdbRating"],
-                                "omdb_Rating_TOMATOES": str(omdbJSON["Ratings"][1]["Value"]).replace("%", "") if len(omdbJSON["Ratings"])==3 else '0', #tomatometer -> remove percent sign and replace '' with 0
-                                "omdb_Rating_METASCORE": str(omdbJSON["Metascore"]).replace("N/A", '0') if len(omdbJSON["Metascore"])>0 else '0', #replace N/A with 0 and '' with 0
-                                "omdb_imdbVotes": str(omdbJSON["imdbVotes"]).replace(",", "") #imdb_votes -> remove colon
-                        })    
-    
-    return filmlist_omdb
+    return {
+        "imdbId": film["imdbId"],
+        "title": film["title"],
+        "orig_title": film["orig_title"],
+        "keywordsList": film["keywordsList"],
+        "omdb_ReleaseYear": data.get("Year",""),
+        "omdb_Runtime": data.get("Runtime",""),
+        "omdb_Genre": data.get("Genre",""),
+        "omdb_Director": cleanStr(data.get("Director","")),
+        "omdb_Writer": cleanStr(data.get("Writer","")),
+        "omdb_Actors": cleanStr(data.get("Actors","")),
+        "omdb_Plot": cleanStr(data.get("Plot","")).replace(";", ","),
+        "omdb_Language": data.get("Language",""),
+        "omdb_Country": data.get("Country",""),
+        "omdb_ReleasedDate": data.get("Released",""),
+        "omdb_Awards": data.get("Awards",""),
+        "omdb_Poster": data.get("Poster",""),
+        "omdb_Rating_IMDB": data.get("imdbRating","0"),
+        "omdb_Rating_TOMATOES":
+            str(data["Ratings"][1]["Value"]).replace("%","")
+            if len(data.get("Ratings",[])) > 1 else "0",
+        "omdb_Rating_METASCORE": data.get("Metascore","0").replace("N/A","0"),
+        "omdb_imdbVotes": data.get("imdbVotes","0").replace(",", "")
+    }
 
 
-def findFilmLists(starts_with):
-    container_client = blob_service.get_container_client(container= container_name) 
-    filmlists=list(x.name.replace(".csv", "") for x in container_client.list_blobs(name_starts_with=starts_with))    
-    return filmlists
+# --- MASTER LIST BUILDER ----------------------------------------
+def build_master_imdb_list(process):
+    yearFrom=int(process["Year From"])
+    yearTo=int(process["Year To"])
+    country="global" if process["Country"]=="" else process["Country"]
+    title_lang=process["Title Language"]
+    sort_type="num_votes,desc" if process["Biased List Sorting"]=="" else process["Biased List Sorting"]
 
-def DB_Loader_lists(processesToRun):
-    filmListsCSV=findFilmLists("output/filmlist_omdb/filmlist_omdb_")
-    finalFilmList = importCSV_blob("load_to_DB/load_filmlist_to_db") if len(findFilmLists("load_to_DB/load_filmlist_to_db.csv"))>0 else list(dict()) 
-    finalFilmList_ong_corr=list(dict())
-    finalFilmListDelta=list(dict())
+    full_list=[]
+    for year in range(yearFrom, yearTo+1):
+        year_list=getFeatureFilm_Title_ID_ByYear(year, country, title_lang, sort_type)
+        full_list.extend(year_list)
+    return full_list
 
-    filmListCorr = importCSV_blob("load_to_DB/load_filmlist_to_db_corr") if len(findFilmLists("load_to_DB/load_filmlist_to_db_corr.csv"))>0 else list(dict()) 
-    
+# --- NEXT SLICE -----------------------------------------------
+def get_next_slice(process_id, master_list):
+    state=load_slice_state(process_id)
+    start=state["next_index"]
+    end=min(start+state["slice_size"], len(master_list))
+    slice_part=master_list[start:end]
+    state["next_index"]=end
+    save_slice_state(process_id, state)
+    return slice_part, end>=len(master_list)
 
-    filmListsCSV_cleaned=list(dict()) 
-    ong_imdb_list=list()
+# --- PROCESS SLICE ---------------------------------------------
+def process_slice(slice_list):
+    delta_films = []
+    for film in slice_list:
+        imdb_data = getFeatureFilm_keywords_origTitle_ById(film)
+        if not imdb_data:
+            continue
 
-    for filmListCSV in filmListsCSV:
-        print(filmListCSV)
-        filmList=importCSV_blob(filmListCSV)     
-        filmList_CLND_IMDBIDs=[x['imdbId'] for x in filmListsCSV_cleaned]
+        omdb_data = omdb(imdb_data)
+        if not omdb_data:
+            continue
 
-        for film in filmList:
-            if film["imdbId"] not in filmList_CLND_IMDBIDs:
-                film['load_type']="STNDRD"
-                filmListsCSV_cleaned.append(film)
+        new_hash = calculate_film_hash(omdb_data)
+        old_hash = load_film_state(film["imdbId"])
 
-    if not finalFilmList:
-        finalFilmList_ong_corr=filmListsCSV_cleaned
-        finalFilmListDelta=filmListsCSV_cleaned
-    else: 
-        for process in processesToRun:
-            if existsCSV_blob("output/filmlist_imdbid/filmlist_imdbid_"+process):
-                tmp_list=importCSV_blob("output/filmlist_imdbid/filmlist_imdbid_"+process)
-                if tmp_list:
-                    for item in tmp_list:
-                        ong_imdb_list.append(item['imdbId'])
+        if new_hash != old_hash:
+            delta_films.append(omdb_data)
+            save_film_state(film["imdbId"], new_hash)
 
-        for film in finalFilmList:
-            if film["imdbId"] not in ong_imdb_list:
-                finalFilmList_ong_corr.append(film)
+    return delta_films
 
-
-        filmList_FINAL_IMDBIDs=[x['imdbId'] for x in finalFilmList_ong_corr]
-
-        for film in filmListsCSV_cleaned:
-            if film["imdbId"] not in filmList_FINAL_IMDBIDs:
-                finalFilmList_ong_corr.append(film)
-                finalFilmListDelta.append(film)
-
-    if filmListCorr:
-        for filmCorr in filmListCorr:
-            del filmCorr["ID"]
-            filmCorr['load_type']="CORR"
-            finalFilmListDelta.append(filmCorr)
-
-
-    if finalFilmList_ong_corr: exportCSV_blob('load_to_DB/load_filmlist_to_db', finalFilmList_ong_corr)
-    if finalFilmListDelta: exportCSV_blob('load_to_DB/load_filmlist_delta_to_db', finalFilmListDelta)
-
-
-# config:
-blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="?sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2023-10-14T16:40:16Z&st=2022-10-14T08:40:16Z&spr=https&sig=RZbu%2BSWbiXkEFm%2FoMShfcyRetD%2BemNeGTIdt1%2BpD5nA%3D")
-container_name="mmdbloader"
-
-delayHRS=2
-
+# --- MAIN -------------------------------------------------------
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Python HTTP trigger function processed a request.')    
-
+    logging.info('Python HTTP trigger function processed a request.')
     isAdhocRun = 1 if req.params.get('adhoc')=='1' else 0
     log=list(dict())
     new_processes=list(dict())
     processes=importCSV_blob('MMP_processes')
     err_flg="N"
-
     processesToRun=list()
-    if (isAdhocRun==0):
-        dayMap={"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
-        allScheduledProcesses=importCSV_blob("load_to_DB/scheduler")        
-        processesToRun=[x["Process ID"] for x in allScheduledProcesses 
-            if                
-                     datetime.strptime(x["Time"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=delayHRS)).time()
-                and (datetime.now()+ timedelta(hours=delayHRS)).time()<=(datetime.strptime(x["Time"], "%H:%M")+ timedelta(minutes=5)).time()
-                and (datetime.now()+ timedelta(hours=delayHRS)).weekday()==dayMap[x["Day"]]
-            ]
     
-    processesToRunDict=list(dict())
+    # --- SCHEDULED RUN ---
+    if isAdhocRun==0:
+        dayMap={"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
+        allScheduledProcesses=importCSV_blob("load_to_DB/scheduler")
+        processesToRun=[x["Process ID"] for x in allScheduledProcesses
+                        if datetime.strptime(x["Time"], "%H:%M").time()<=(datetime.now()+ timedelta(hours=delayHRS)).time()
+                        and (datetime.now()+ timedelta(hours=delayHRS)).time()<=(datetime.strptime(x["Time"], "%H:%M")+ timedelta(minutes=5)).time()
+                        and (datetime.now()+ timedelta(hours=delayHRS)).weekday()==dayMap[x["Day"]]]
 
-    if processesToRun: 
-        for processToRun in processesToRun:
-            processesToRunDict.append({"process":processToRun})
-    else:
-        processesToRunDict.append({"process":"none"})
-    exportCSV_blob('load_to_DB/processes_curr_ong',processesToRunDict)        
+    if not processesToRun:
+        processesToRun=["none"]
 
-    if (isAdhocRun==1 or (isAdhocRun==0 and len(processesToRun)!=0)):
-        for process in processes:
-            if (isAdhocRun==1 and process["Adhoc"]=='Y' and (process["Status"]=='N' or process["Status"]=='P') and err_flg=="N") or (process["Process ID"] in processesToRun and process["Adhoc"]=='N' and (process["Status"]=='N' or process["Status"]=='P' or process["Status"]=='D') and err_flg=="N"):        
-                yearFrom=int(process["Year From"])
-                yearTo=int(process["Year To"])
-                country="global" if process["Country"]=="" else process["Country"]
-                title_lang=process["Title Language"]
-                filmLimit=int(0 if process["Film limit"]=='' else process["Film limit"])  
-                runBiasedList=1 if process["Run Biased List"].lower()=='y' else 0
-                runLoadingFilms=1 if process["Run Film List"].lower()=='y' else 0
-                runWithImportedBiasedList=1 if process["Run with Imported Biased List"].lower()=='y' else 0
-                sort_type="num_votes,desc" if process["Biased List Sorting"]=="" else process["Biased List Sorting"]
-                importBiasedListFile=process["Imported Biased List File"]
-                w=float(0 if process["Biased List W"]=="" else process["Biased List W"].replace(",", "."))
+    exportCSV_blob('load_to_DB/processes_curr_ong',[{"process":p} for p in processesToRun])
 
-                log.append(logger(process["Process ID"], "Params: FilmLimit: "+str(filmLimit)+" YearFrom: "+str(yearFrom)+" YearTo: "+str(yearTo)+" Country: "+str(country)+" Title_lang: "+str(title_lang)+""))
-                
-                if runWithImportedBiasedList==1:
-                    log.append(logger(process["Process ID"], "import "+importBiasedListFile))
-                    biasedCountByYear=importCSV_blob(process["Imported Biased List File"])
-
-                if runBiasedList==1:
-                    log.append(logger(process["Process ID"], "Start of biasedCountByYear"))
-                    countFilmsList=list(dict())
-                    currYear=yearFrom
-                    while currYear<=yearTo:
-                        countFilmsList.append({"year":currYear, "filmCount": getFeatureFilmCountByYear(currYear, country)})
-                        currYear=currYear+1
-
-                    biasedCountByYear=filmLoaderCalc(w,filmLimit,countFilmsList)
-                    exportCSV_blob(process["Exported Biased List File"],biasedCountByYear)
-
-                if runLoadingFilms==1:
-                    log.append(logger(process["Process ID"], "Start of getFeatureFilm_Title_ID_ByYear"))
-
-                    movieList_IMDBID_Title=list(dict())
-                    if process["Status"]!="P":                       
-                        for countFilmYear in biasedCountByYear:
-                            if yearFrom<=int(countFilmYear["year"]) and int(countFilmYear["year"])<=yearTo:
-                                movieList_IMDBID_Title.extend(getFeatureFilm_Title_ID_ByYear(countFilmYear["year"],country, title_lang, int(float(countFilmYear["filmCountBiasedLimit"])), sort_type))
-                        exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]+'',movieList_IMDBID_Title)                        
-                    
-                    if process["Status"]=="P" and existsCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"]):
-                        movieList_IMDBID_Title=importCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+process["Process ID"])
-
-                    log.append(logger(process["Process ID"], "Start of getFeatureFilm_keywords_origTitle_ById"))                
-
-                    if filmLimit>0 and len(movieList_IMDBID_Title)>filmLimit:                    
-                        movieList_IMDBID_Title_over=movieList_IMDBID_Title[filmLimit::]
-                        newID= process["Process ID"][0:-1]+str((int(process["Process ID"][-1::])+1)) 
-                        exportCSV_blob('output/filmlist_imdbid/filmlist_imdbid_'+newID+'',movieList_IMDBID_Title_over)
-                        movieList_IMDBID_Title=movieList_IMDBID_Title[0:filmLimit]
-                
-                    if len(movieList_IMDBID_Title)>0:
-                        rtn_movieList_KW=getFeatureFilm_keywords_origTitle_ById(movieList_IMDBID_Title)
-                        movieList_KW=rtn_movieList_KW["rtn"]
-                        err_flg="Y" if (country!="global" and rtn_movieList_KW["err_count"]>5) or (country=="global" and rtn_movieList_KW["err_count"]>2) else "N"
-
-                        if err_flg!="Y":
-                            log.append(logger(process["Process ID"], "Start of filmlist_omdb"))
-                            filmlist_omdb = omdb(movieList_KW)
-                            exportCSV_blob('output/filmlist_omdb/filmlist_omdb_'+process["Process ID"]+'_'+str(yearFrom)+'_'+str(yearTo)+'_'+country,filmlist_omdb)
-                        else:
-                            log.append(logger(process["Process ID"], "Empty keywords error"))
-                    else:
-                        log.append(logger(process["Process ID"], "No films being processed.")) 
-
-                process["Last Run"]=str((datetime.now()+ timedelta(hours=delayHRS)).strftime("%Y.%m.%d %H:%M:%S"))
-                if err_flg=="Y":process["Status"]="E"
-                else: process["Status"] = "D" if process["Status"] != "P" else process["Status"]
-                    
-
-            new_processes.append(process)
-                    
-        exportCSV_blob('MMP_processes',new_processes)
-
-        log.append(logger("-", "Start of Loader refresh"))
-        DB_Loader_lists(processesToRun)
-
-        log.append(logger("-", "End of calculation"))
-        exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=delayHRS)).strftime("%Y%m%d_%H%M%S")),log)
-            
-
-
-    if isAdhocRun==1:
-        return func.HttpResponse("Adhoc calculation successfully processed.", status_code=200)
-    else:
-        return func.HttpResponse("Timer triggered calculation successfully processed.", status_code=200)
-
-    #imported_CSV=importCSV_blob("MMP_processes")
-    #exportCSV_blob(f"output/biased_list/blobtest/adhoc", imported_CSV)
+    for process in processes:
+        if (isAdhocRun==1 and process["Adhoc"]=='Y') or (process["Process ID"] in processesToRun):
+            master_list=build_master_imdb_list(process)
+            finished=False
+            while not finished:
+                slice_part, finished=get_next_slice(process["Process ID"], master_list)
+                delta_films=process_slice(slice_part)
+                if delta_films:
+                    exportCSV_blob(f'load_to_DB/load_filmlist_delta_to_db_{process["Process ID"]}', delta_films)
+            clear_slice_state(process["Process ID"])
+            # --- update status ---
+            if int(process["Year To"])==datetime.now().year:
+                process["Status"]="P"
+            else:
+                process["Status"]="D"
+            process["Last Run"]=str((datetime.now()+ timedelta(hours=delayHRS)).strftime("%Y.%m.%d %H:%M:%S"))
+        new_processes.append(process)
+    
+    exportCSV_blob('MMP_processes', new_processes)
+    log.append(logger("-", "Processing finished"))
+    exportCSV_blob('logs/log_'+str(((datetime.now())+ timedelta(hours=delayHRS)).strftime("%Y%m%d_%H%M%S")),log)
+    
+    return func.HttpResponse("Processing successfully completed.", status_code=200)
