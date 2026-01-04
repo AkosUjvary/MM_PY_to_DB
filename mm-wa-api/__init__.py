@@ -6,6 +6,13 @@ import azure.functions as func
 from azure.storage.blob import BlobServiceClient  
 import os
 
+# config:
+
+conn_str = os.environ["MM_STORAGE_CONNECTION_STRING"]
+blob_service = BlobServiceClient.from_connection_string(conn_str)
+container_name="mmdbloader"
+
+
 def exportCSV_blob(filename, listDict, id_flg, id_nm):  
     delimiter=";"          
     header = delimiter.join(list(listDict[0].keys())) 
@@ -67,12 +74,6 @@ def findBlobs(starts_with):
 def cleanQuot(str):
     cleaned_str=str.replace(r"\"", "\"")
     return cleaned_str
-
-# config:
-
-conn_str = os.environ["MM_STORAGE_CONNECTION_STRING"]
-blob_service = BlobServiceClient.from_connection_string(conn_str)
-container_name="mmdbloader"
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')

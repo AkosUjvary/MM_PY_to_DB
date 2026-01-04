@@ -9,11 +9,14 @@ from datetime import datetime, timedelta
 import logging
 import hashlib
 import azure.functions as func
+import os
 from azure.storage.blob import BlobServiceClient  
 
 # --- CONFIG ---------------------------------------------------
-blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2027-01-04T00:05:31Z&st=2026-01-03T15:50:31Z&spr=https&sig=VZwfSg9vLomc%2BszCzCt3yHmNZv1PlyHvDFb3mwzhXHw%3D")
-container_name = "mmdbloader"
+conn_str = os.environ["MM_STORAGE_CONNECTION_STRING"]
+blob_service = BlobServiceClient.from_connection_string(conn_str)
+container_name="mmdbloader"
+
 delayHRS = 2
 SLICE_SIZE = 250
 
