@@ -3,6 +3,11 @@ from azure.storage.blob import BlobServiceClient
 import azure.functions as func
 import csv
 
+# config:
+conn_str = os.environ["MM_STORAGE_CONNECTION_STRING"]
+blob_service = BlobServiceClient.from_connection_string(conn_str)
+container_name="mmdbloader"
+
 
 def importCSV_blob(importCSV):
     newLoD=list(dict())
@@ -27,10 +32,6 @@ def mapping(map_lod, source_lod):
         newLoD.append({map_lod[i]["TARGET"]: source_row[map_lod[i]["FROM"]] if map_lod[i]["TYPE"]=="T" else map_lod[i]["FROM"]
                                                  for i in range(len(map_lod))})
     return newLoD
-
-# config:
-blob_service = BlobServiceClient(account_url="https://mmstrgaccount.blob.core.windows.net/", credential="?sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupyx&se=2023-10-14T16:40:16Z&st=2022-10-14T08:40:16Z&spr=https&sig=RZbu%2BSWbiXkEFm%2FoMShfcyRetD%2BemNeGTIdt1%2BpD5nA%3D")
-container_name="mmdbloader"
 
 def main(myblob: func.InputStream, sqlstage: func.Out[func.SqlRowList]) -> func.HttpResponse:
 #def main(myblob: func.InputStream, sqlstage: func.Out[func.SqlRowList]):
