@@ -76,15 +76,34 @@ def cleanStr(s):
          .replace("&quot;",'"')
     )
 
+headers = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "priority": "u=0, i",
+    "sec-ch-ua": "\"Brave\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Linux\"",
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-user": "?1",
+    "sec-gpc": "1",
+    "upgrade-insecure-requests": "1",
+	"user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+}
+
 def getFeatureFilmCountByYear(year, country):
     country_q = "" if country=="global" else f"&countries={country}"
     time.sleep(0.05)
     html = requests.get(
-        f"https://www.imdb.com/search/title/?title_type=feature&release_date={year}-01-01,{year}-12-31{country_q}"
+        f"https://www.imdb.com/search/title/?title_type=feature&release_date={year}-01-01,{year}-12-31{country_q}", headers=headers
     ).text
     p = html.find('<div class="desc">') + 17
     t = html[p:p+100]
     i=-2; r=""
+
     while t[i].isdigit() or t[i]==",":
         r += t[i].replace(",","")
         i-=1
@@ -93,13 +112,30 @@ def getFeatureFilmCountByYear(year, country):
 def getFeatureFilm_Title_ID_ByYear(year, country, title_lang, limit, sort_type):
     out=[]
     start=1
+    headers = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": ""+title_lang+",en;q=0.9",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "priority": "u=0, i",
+    "sec-ch-ua": "\"Brave\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Linux\"",
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-user": "?1",
+    "sec-gpc": "1",
+    "upgrade-insecure-requests": "1",
+	"user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+}
     while len(out)<limit:
         url = (
             f"https://www.imdb.com/search/title/?title_type=feature"
             f"&release_date={year}-01-01,{year}-12-31"
             f"&sort={sort_type}&count=250&start={start}"
         )
-        html = requests.get(url, headers={"Accept-Language":title_lang}).text
+        html = requests.get(url, headers=headers).text
         if html.count("lister-item-header")==0:
             break
         while "lister-item-header" in html and len(out)<limit:
